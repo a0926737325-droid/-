@@ -7,165 +7,133 @@ from datetime import datetime
 # 1. 系統設定 (基於 10-3: 認知鎖定)
 # ==========================================
 st.set_page_config(
-    page_title="部落深度導覽系統 - CRF v9.0 Pro",
-    page_icon="🏔️",
-    layout="centered",
-    initial_sidebar_state="expanded"
+    page_title="台東長濱：南溪部落深度導覽 - CRF v9.0",
+    page_icon="🌊",
+    layout="centered"
 )
 
 # ==========================================
-# 2. CSS 完整封裝 (基於 travel.py 與 10-3 轉換心臟區)
+# 2. CSS 完整移植 (基於 travel.py: 櫻粉色與深色修復)
 # ==========================================
 st.markdown("""
     <style>
-    /* 全域背景與字體顏色 - 避免深色模式衝突 */
+    /* 強制粉色美學與深色文字 (修復深色模式錯誤) */
     .stApp { background-color: #FFF0F5; color: #333333 !important; }
-    p, div, span, h1, h2, h3, label { color: #4A2C2C !important; }
+    p, div, span, h1, h2, h3, h4, label { color: #4A2C2C !important; }
 
-    /* Tier 1: Conversion Hotzone (轉換心臟區) 按鈕設計 */
+    /* Tier 1: 轉換心臟區 (Conversion Hotzone) 按鈕 */
     .stButton>button {
         width: 100%;
         border-radius: 25px;
         background: linear-gradient(135deg, #FF69B4 0%, #FF1493 100%);
         color: white !important;
-        font-size: 18px;
         font-weight: bold;
+        padding: 15px;
         border: none;
-        padding: 12px;
         box-shadow: 0 4px 15px rgba(255, 20, 147, 0.3);
         transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     }
     .stButton>button:hover {
-        transform: translateY(-3px);
+        transform: scale(1.03);
         box-shadow: 0 6px 20px rgba(255, 20, 147, 0.5);
     }
 
-    /* 景點卡片設計 - 降低視覺熵 */
-    .tribe-card {
+    /* 景點卡片設計 (降低視覺熵) */
+    .spot-card {
         background: white;
-        padding: 25px;
-        border-radius: 20px;
-        border-left: 8px solid #FF69B4;
+        padding: 20px;
+        border-radius: 18px;
+        border-left: 10px solid #FF69B4;
         margin-bottom: 20px;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.05);
-    }
-    .status-tag {
-        display: inline-block;
-        padding: 4px 12px;
-        border-radius: 10px;
-        font-size: 12px;
-        font-weight: bold;
-        margin-bottom: 10px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.05);
     }
     </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 核心資料庫 (基於 10-4: 資料主權與整合)
+# 3. 核心資料庫 (南溪部落數據主權)
 # ==========================================
-# 確保資料不依賴外部脆弱 API，建立本地備援資料結構
-TRIBE_DB = {
-    "前山區": [
-        {"name": "詩朗部落", "desc": "枝垂櫻與祕境步道", "hot": "⭐⭐⭐⭐", "safety": 1.0},
-        {"name": "霞雲部落", "desc": "山水環抱的泰雅原鄉", "hot": "⭐⭐⭐", "safety": 1.0}
+TRIBE_DATA = {
+    "culture": [
+        {"name": "布農族八部合音體驗", "desc": "深度觸及南溪布農文化核心", "safety": 1.0},
+        {"name": "三間村古道導覽", "desc": "穿梭長濱與南溪的歷史路徑", "safety": 0.8}
     ],
-    "後山區": [
-        {"name": "中巴陵", "desc": "櫻木花道 (昭和櫻隧道)", "hot": "⭐⭐⭐⭐⭐", "safety": 0.3}, # 模擬擁堵風險
-        {"name": "高義部落", "desc": "溪口台地與古道探幽", "hot": "⭐⭐⭐⭐", "safety": 1.0},
-        {"name": "拉拉山部落", "desc": "神木群與雲海餐桌", "hot": "⭐⭐⭐⭐⭐", "safety": 0.9}
+    "nature": [
+        {"name": "南溪河谷溯溪", "desc": "清澈見底的自然生態觀察點", "safety": 0.4}, # 模擬大雨熔斷風險
+        {"name": "部落梯田景觀", "desc": "遠眺太平洋與海岸山脈交會點", "safety": 1.0}
+    ],
+    "food": [
+        {"name": "阿公的獵人包DIY", "desc": "南溪在地食材與傳統保存食", "safety": 1.0},
+        {"name": "長濱山海味私廚", "desc": "融合長濱海鮮與南溪野菜的饗宴", "safety": 0.9}
     ]
 }
 
 # ==========================================
-# 4. 邏輯驅動層 (基於 10-1 遍歷性 & 10-2 MVP 策略)
+# 4. 核心邏輯層 (基於 10-1 遍歷性 & 10-4 資源整合)
 # ==========================================
 
-def ergodicity_filter(tribe_name, safety_score):
+def ergodicity_check(spot_name, safety_score):
     """
-    遍歷性檢查 (Survival First): 
-    若安全性分值過低，強制觸發熔斷機制，禁止進入該路徑。
+    生存第一原則：若南溪降雨機率過高或路況不佳，強制熔斷。
     """
     if safety_score < 0.5:
-        return False, f"⚠️ 【系統預警】{tribe_name} 聯外道路目前處於紅皇后臨界值 (擁塞/維修)。"
+        return False, f"⚠️ 【黑天鵝預警】{spot_name} 目前因溪水暴漲風險已啟動 Hard Stop。已為您切換至陸域文化備援。"
     return True, "路徑安全"
 
-def apply_variable_reward():
-    """多巴胺成癮機制: 隨機觸發獎勵互動"""
-    if random.random() > 0.7:
+def dopamine_trigger():
+    """變動獎勵機制：提升用戶留存率"""
+    if random.random() > 0.6:
         st.balloons()
-        st.toast("🎉 解鎖部落隱藏版圖章：『櫻之勇者』！", icon="🌸")
+        st.toast("🎁 獲得南溪部落數位勳章：『山海守護者』！", icon="🛡️")
 
 # ==========================================
-# 5. UI 交互呈現 (基於 10-3 視覺鎖定)
+# 5. UI 呈現層 (基於 10-3 視覺鎖定)
 # ==========================================
 
-st.title("🏔️ 部落深度導覽系統")
-st.markdown("**Version:** `9.0 Institutional` | **Core:** `Black Swan Defense Enabled`")
+st.title("🏔️ 南溪部落：山海導覽系統")
+st.caption("台東縣長濱鄉三間村 | CRF v9.0 深度智能版")
 
-# 1. 客製化意圖透視 (Intent X-Ray)
-tab_front, tab_back = st.tabs(["🚶 前山區 (低認知模式)", "🎒 後山區 (深度遍歷模式)"])
+# 1. 意圖透視 (Intent X-Ray)
+choice = st.selectbox("您偏好的南溪體驗？", ["文化沉浸", "自然探索", "部落風味"])
 
-def render_tribe_list(region_key):
-    for tribe in TRIBE_DB[region_key]:
-        with st.container():
-            # 渲染卡片
-            safe, msg = ergodicity_filter(tribe['name'], tribe['safety'])
-            status_color = "#28a745" if safe else "#dc3545"
-            status_text = "● 推薦前往" if safe else "● 建議避開"
-            
-            st.markdown(f"""
-            <div class="tribe-card">
-                <span class="status-tag" style="background: {status_color}22; color: {status_color};">
-                    {status_text}
-                </span>
-                <h2 style="margin:0; padding-bottom:10px;">{tribe['name']}</h2>
-                <p style="font-size: 16px; opacity: 0.8;">{tribe['desc']}</p>
-                <p>熱門程度：{tribe['hot']}</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # 轉換心臟區按鈕
-            if safe:
-                if st.button(f"啟動 {tribe['name']} 導覽協議", key=tribe['name']):
-                    with st.status(f"正在計算 {tribe['name']} 最優路徑...", expanded=True) as status:
-                        time.sleep(1)
-                        st.write("🔗 正在整合天氣、交通 API (Tier 3 動態路由)...")
-                        time.sleep(0.8)
-                        status.update(label="導覽協議已鎖定！", state="complete", expanded=False)
-                    apply_variable_reward()
-                    st.success(f"已將 {tribe['name']} 的座標存入『資料主權』本地緩存。")
-            else:
-                st.error(msg)
-                if st.button(f"獲取 {tribe['name']} 的備援 Plan B", key=f"bak_{tribe['name']}"):
-                    st.info("系統已自動重定向至：高義部落。預計提升 45% ROI 並降低延遲。")
+mapping = {"文化沉浸": "culture", "自然探索": "nature", "部落風味": "food"}
+spots = TRIBE_DATA[mapping[choice]]
 
-with tab_front:
-    render_tribe_list("前山區")
-
-with tab_back:
-    render_tribe_list("後山區")
+# 2. 遍歷性動態導航
+for spot in spots:
+    is_safe, alert_msg = ergodicity_check(spot['name'], spot['safety'])
+    
+    with st.container():
+        st.markdown(f"""
+        <div class="spot-card">
+            <h3 style="margin:0;">📍 {spot['name']}</h3>
+            <p style="opacity:0.8; margin:10px 0;">{spot['desc']}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if not is_safe:
+            st.error(alert_msg)
+            if st.button(f"查看 {spot['name']} 的備援 Plan B", key=f"bak_{spot['name']}"):
+                st.info("已串接『南溪室內文化館』，ROI 維持正常，延遲降低。")
+        else:
+            if st.button(f"鎖定 {spot['name']} 導覽協議", key=spot['name']):
+                with st.spinner("正在校準長濱即時氣象與路況 API..."):
+                    time.sleep(1.2)
+                st.success(f"導覽權限已獲取。座標已同步至您的『資料主權』緩存。")
+                dopamine_trigger()
 
 # ==========================================
 # 6. 決策校準層 (Sidebar)
 # ==========================================
 with st.sidebar:
-    st.header("⚙️ 系統監控 (Telemetry)")
-    st.write("---")
-    st.metric("核心存活率", "99.99%", "+0.01%")
-    st.metric("認知負荷 (Entropy)", "1.2 bit", "-0.4 bit")
-    
+    st.header("⚙️ 遙測中心")
+    st.write(f"系統版本：`v9.0` (Institutional)")
+    st.metric("台東長濱 RPO", "5s", "-1s")
     st.divider()
-    st.subheader("🛡️ 資源備援矩陣")
-    st.checkbox("開啟 Dark API 備援導航", value=True)
-    st.checkbox("啟動自動化偽需求過濾", value=True)
+    st.subheader("🛡️ 安全協議")
+    st.toggle("啟動自動化偽需求過濾", value=True)
+    st.toggle("黑天鵝路徑監測器", value=True)
     
     if st.button("🔴 緊急熔斷 (Hard Stop)"):
-        st.error("系統進入自毀鎖定模式，所有對外通訊已切斷。")
+        st.error("所有導覽行程已終止，系統進入自毀鎖定。")
         st.stop()
-        
-    st.markdown("""
-    ---
-    **憲法警告：**
-    本介面嚴禁引入『認知超載』元素。
-    任何 Tier 4 虛榮功能一律一票否決。
-    """)
